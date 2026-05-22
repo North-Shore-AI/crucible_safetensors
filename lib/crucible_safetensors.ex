@@ -1,18 +1,5 @@
 defmodule CrucibleSafetensors do
   @moduledoc """
-  Documentation for `CrucibleSafetensors`.
+  SafeTensors parsing, validation, slicing, checksums, and deterministic writing.
   """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> CrucibleSafetensors.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
 end
