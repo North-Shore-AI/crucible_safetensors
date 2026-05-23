@@ -1,4 +1,17 @@
+<p align="center">
+  <img src="assets/crucible_safetensors.svg" alt="CrucibleSafetensors Logo" width="120px" />
+</p>
+
 # CrucibleSafetensors
+
+<p align="center">
+  <a href="https://github.com/North-Shore-AI/crucible_safetensors/actions/workflows/ci.yml">
+    <img src="https://github.com/North-Shore-AI/crucible_safetensors/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status" />
+  </a>
+  <a href="https://github.com/North-Shore-AI/crucible_safetensors/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/North-Shore-AI/crucible_safetensors" alt="GitHub License" />
+  </a>
+</p>
 
 SafeTensors parsing, validation, bounded slicing, checksums, deterministic
 writing, and row-chunk helpers for Elixir.

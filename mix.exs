@@ -67,7 +67,7 @@ defmodule CrucibleSafetensors.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "MIGRATION.md"],
+      extras: ["README.md", "CHANGELOG.md", "MIGRATION.md", "LICENSE"],
       source_ref: "main",
       source_url: @source_url,
       homepage_url: @source_url
@@ -79,7 +79,7 @@ defmodule CrucibleSafetensors.MixProject do
       name: "crucible_safetensors",
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib mix.exs README.md LICENSE MIGRATION.md)
+      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md MIGRATION.md)
     ]
   end
 end
