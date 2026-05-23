@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/crucible_safetensors.svg" alt="CrucibleSafetensors Logo" width="120px" />
+  <img src="assets/crucible_safetensors.svg" alt="CrucibleSafetensors Logo" width="200px" />
 </p>
 
 # CrucibleSafetensors
