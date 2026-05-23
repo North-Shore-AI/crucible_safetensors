@@ -5,11 +5,7 @@ defmodule CrucibleSafetensors.LargeFixtureTest do
 
   @tag :large_safetensors
   test "large fixture row chunks concatenate to the same bytes as a full read" do
-    fixture_dir =
-      System.get_env(
-        "TRINITY_LARGE_FIXTURE_DIR",
-        Path.expand("~/p/g/n/trinity_coordinator/priv/sakana_trinity/adapted_qwen3_0_6b_layer26")
-      )
+    fixture_dir = Path.expand("tmp/crucible_safetensors_fixture")
 
     path =
       fixture_dir

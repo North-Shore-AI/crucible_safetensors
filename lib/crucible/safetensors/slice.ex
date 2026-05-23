@@ -3,8 +3,8 @@ defmodule Crucible.Safetensors.Slice do
   Compatibility row-slice helpers for lazy `%Safetensors.FileTensor{}` values.
 
   The file-format reader in `CrucibleSafetensors.Reader` is the canonical API for
-  new callers. This module preserves the coordinator's previous lazy tensor
-  behavior during the decomposition window.
+  new callers. This module preserves the previous lazy tensor behavior during
+  the decomposition window.
   """
 
   alias Safetensors.Shared
