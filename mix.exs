@@ -41,13 +41,7 @@ defmodule CrucibleSafetensors.MixProject do
 
   defp deps do
     [
-      # Pin to the coordinator's Nx ref until the Hex release carrying the
-      # thin-SVD work lands; replace with {:nx, "~> 0.13"} after publication.
-      {:nx,
-       github: "elixir-nx/nx",
-       sparse: "nx",
-       ref: "6424c8902380380cd7a8c282b0557d653aead018",
-       override: true},
+      {:nx, "~> 0.12", override: true},
       {:safetensors, "~> 0.1.3"},
       {:jason, "~> 1.4"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
