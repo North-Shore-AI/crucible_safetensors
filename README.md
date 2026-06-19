@@ -31,6 +31,8 @@ namespaces retained for callers migrating from the original monolith extraction.
   binary tensor payloads.
 - `CrucibleSafetensors.ChunkReader` streams rank-2 row chunks for large tensors.
 - `CrucibleSafetensors.Checksum` returns SHA-256 checksums for files.
+- `CrucibleSafetensors.VectorInspect` validates tensor key, dtype, shape,
+  element count, and file digest without loading the tensor payload.
 - `Crucible.Safetensors.Slice` keeps the legacy lazy
   `%Safetensors.FileTensor{}` row-slice behavior available while downstream
   callers move to the direct reader API.
@@ -125,6 +127,18 @@ the entire payload at once.
 ```
 
 The checksum helper returns lowercase hexadecimal SHA-256 text.
+
+## Vector Inspection
+
+```elixir
+{:ok, report} =
+  CrucibleSafetensors.VectorInspect.inspect("router_vector.safetensors",
+    tensor_key: "router_vector",
+    expected_count: 19_456
+  )
+```
+
+The report is metadata-only and does not materialize the tensor payload.
 
 ## CI
 

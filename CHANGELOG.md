@@ -9,3 +9,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial release of `CrucibleSafetensors` from the monolith extraction.
+- Added metadata-only SafeTensors vector inspection for candidate preflight
+  checks.

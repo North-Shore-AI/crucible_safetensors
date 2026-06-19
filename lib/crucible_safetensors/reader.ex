@@ -45,7 +45,12 @@ defmodule CrucibleSafetensors.Reader do
 
   @doc "Fetches a tensor metadata entry by name."
   @spec tensor(Header.t(), String.t()) :: {:ok, TensorInfo.t()} | {:error, :not_found}
-  def tensor(%Header{tensors: tensors}, name) when is_binary(name), do: Map.fetch(tensors, name)
+  def tensor(%Header{tensors: tensors}, name) when is_binary(name) do
+    case Map.fetch(tensors, name) do
+      {:ok, tensor} -> {:ok, tensor}
+      :error -> {:error, :not_found}
+    end
+  end
 
   @doc "Reads a byte slice relative to the start of the given tensor payload."
   @spec read_slice(Header.t(), TensorInfo.t(), Range.t() | {non_neg_integer(), non_neg_integer()}) ::

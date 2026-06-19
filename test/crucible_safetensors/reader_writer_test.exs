@@ -19,6 +19,7 @@ defmodule CrucibleSafetensors.ReaderWriterTest do
     assert {:ok, header} = Reader.open(path)
     assert header.metadata == %{"source" => "test"}
     assert {:ok, tensor} = Reader.tensor(header, "b")
+    assert {:error, :not_found} = Reader.tensor(header, "missing")
     assert tensor.shape == [2]
     assert tensor.dtype == :i32
     assert {:ok, slice} = Reader.read_tensor(header, tensor)
