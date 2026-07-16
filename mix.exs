@@ -41,12 +41,12 @@ defmodule CrucibleSafetensors.MixProject do
 
   defp deps do
     [
-      {:nx, "~> 0.12", override: true},
+      {:nx, "~> 0.12.1", override: true},
       {:safetensors, "~> 0.1.3"},
       {:jason, "~> 1.4"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.40.1", only: [:dev, :test], runtime: false}
+      {:ex_doc, "~> 0.40.3", only: [:dev, :test], runtime: false}
     ]
   end
 
