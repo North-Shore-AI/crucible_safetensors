@@ -2,6 +2,7 @@ defmodule CrucibleSafetensors.Boundary.NoHeavyDepsTest do
   use ExUnit.Case, async: true
 
   @forbidden ~w(
+    Nx.
     Bumblebee.
     Axon.
     EXLA.
@@ -15,6 +16,12 @@ defmodule CrucibleSafetensors.Boundary.NoHeavyDepsTest do
 
   test "file-format package does not import runtime or provider dependencies" do
     assert forbidden_hits() == []
+  end
+
+  test "mix dependencies do not include Nx or the external Safetensors package" do
+    mix = File.read!("mix.exs")
+    refute mix =~ "{:nx,"
+    refute mix =~ "{:safetensors,"
   end
 
   defp forbidden_hits do

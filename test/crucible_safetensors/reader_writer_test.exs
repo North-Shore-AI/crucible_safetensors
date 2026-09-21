@@ -38,7 +38,7 @@ defmodule CrucibleSafetensors.ReaderWriterTest do
 
   test "rejects invalid header JSON" do
     path = tmp_path("bad_json.safetensors")
-    File.write!(path, [<<1::unsigned-little-64>>, "x"])
+    File.write!(path, [<<1::unsigned-little-64>>, "{"])
 
     assert {:error, %Errors{message: message}} = Reader.open(path)
     assert message =~ "invalid SafeTensors header JSON"
@@ -107,6 +107,104 @@ defmodule CrucibleSafetensors.ReaderWriterTest do
       |> Enum.map_join(& &1.data)
 
     assert chunked == whole.data
+  end
+
+  test "supports current byte and sub-byte SafeTensors dtype metadata without Nx" do
+    cases = [
+      {:bool, [3], 3},
+      {:i8, [3], 3},
+      {:u16, [3], 6},
+      {:f8_e4m3, [3], 3},
+      {:f4, [4], 2},
+      {:f6_e2m3, [4], 3},
+      {:f64, [2], 16},
+      {:u64, [2], 16}
+    ]
+
+    Enum.each(cases, fn {dtype, shape, nbytes} ->
+      path = tmp_path("dtype_#{dtype}.safetensors")
+
+      Writer.write!(
+        %{"value" => %{dtype: dtype, shape: shape, data: :binary.copy(<<0>>, nbytes)}},
+        path
+      )
+
+      header = Reader.open!(path)
+      assert {:ok, tensor} = Reader.tensor(header, "value")
+      assert tensor.dtype == dtype
+      assert tensor.nbytes == nbytes
+    end)
+  end
+
+  test "rejects non-string metadata values" do
+    path = tmp_path("invalid_metadata.safetensors")
+
+    assert {:error, %Errors{message: message}} =
+             Writer.write(
+               %{"a" => %{dtype: :i32, shape: [1], data: <<1::little-32>>}},
+               path,
+               metadata: %{"count" => 1}
+             )
+
+    assert message =~ "metadata must contain only string keys and values"
+  end
+
+  test "row slicing rejects sub-byte layouts whose rows are not byte-aligned" do
+    path = tmp_path("subbyte_rows.safetensors")
+    Writer.write!(%{"rows" => %{dtype: :f4, shape: [2, 3], data: <<0, 0, 0>>}}, path)
+    header = Reader.open!(path)
+    {:ok, tensor} = Reader.tensor(header, "rows")
+
+    assert {:error, %Errors{message: message}} = Reader.read_row_slice(header, tensor, 0, 1)
+    assert message =~ "not byte-aligned"
+  end
+
+  test "rejects total sub-byte tensor sizes that are not byte-aligned" do
+    path = tmp_path("misaligned_subbyte.safetensors")
+
+    assert {:error, %Errors{message: message}} =
+             Writer.write(%{"value" => %{dtype: :f4, shape: [3], data: <<0, 0>>}}, path)
+
+    assert message =~ "not byte-aligned"
+  end
+
+  test "rejects duplicate JSON keys in headers" do
+    path = tmp_path("duplicate_key.safetensors")
+
+    json =
+      ~s({"a":{"dtype":"I32","shape":[1],"data_offsets":[0,4]},"a":{"dtype":"I32","shape":[1],"data_offsets":[0,4]}})
+
+    File.write!(path, [<<byte_size(json)::unsigned-little-64>>, json, <<1::little-32>>])
+
+    assert {:error, %Errors{message: message}} = Reader.open(path)
+    assert message =~ "duplicate JSON object key"
+  end
+
+  test "rejects payload gaps and trailing payload bytes" do
+    gap_header = %{
+      "a" => %{"dtype" => "I32", "shape" => [1], "data_offsets" => [4, 8]}
+    }
+
+    gap_path = raw_file("gap.safetensors", gap_header, <<0::size(64)>>)
+    assert {:error, %Errors{message: gap_message}} = Reader.open(gap_path)
+    assert gap_message =~ "starts at 4, expected 0"
+
+    trailing_header = %{
+      "a" => %{"dtype" => "I32", "shape" => [1], "data_offsets" => [0, 4]}
+    }
+
+    trailing_path = raw_file("trailing.safetensors", trailing_header, <<0::size(64)>>)
+    assert {:error, %Errors{message: trailing_message}} = Reader.open(trailing_path)
+    assert trailing_message =~ "file contains 8 payload bytes"
+  end
+
+  test "rejects headers that do not begin with a JSON object" do
+    path = tmp_path("leading_space.safetensors")
+    json = ~s( {"a":{"dtype":"I32","shape":[1],"data_offsets":[0,4]}})
+    File.write!(path, [<<byte_size(json)::unsigned-little-64>>, json, <<1::little-32>>])
+
+    assert {:error, %Errors{message: message}} = Reader.open(path)
+    assert message =~ "must begin with a JSON object"
   end
 
   defp raw_file(name, header, payload) do

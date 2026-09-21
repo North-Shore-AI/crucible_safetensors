@@ -1,7 +1,7 @@
 defmodule CrucibleSafetensors.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/North-Shore-AI/crucible_safetensors"
 
   def project do
@@ -14,7 +14,8 @@ defmodule CrucibleSafetensors.MixProject do
       aliases: aliases(),
       dialyzer: [plt_add_deps: :apps_direct],
       name: "CrucibleSafetensors",
-      description: "SafeTensors parsing, validation, slicing, checksums, and writing",
+      description:
+        "Tensor-runtime-neutral SafeTensors parsing, validation, manifests, checksums, and writing",
       source_url: @source_url,
       homepage_url: @source_url,
       docs: docs(),
@@ -24,7 +25,7 @@ defmodule CrucibleSafetensors.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :crypto]
     ]
   end
 
@@ -41,8 +42,6 @@ defmodule CrucibleSafetensors.MixProject do
 
   defp deps do
     [
-      {:nx, "~> 0.12.1", override: true},
-      {:safetensors, "~> 0.1.3"},
       {:jason, "~> 1.4"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

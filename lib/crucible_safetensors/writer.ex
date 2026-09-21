@@ -1,17 +1,7 @@
 defmodule CrucibleSafetensors.Writer do
   @moduledoc "Deterministic SafeTensors writer for binary tensor payloads."
 
-  alias CrucibleSafetensors.Errors
-
-  @dtype_names %{
-    f16: "F16",
-    bf16: "BF16",
-    f32: "F32",
-    i32: "I32",
-    i64: "I64"
-  }
-
-  @dtype_bytes %{f16: 2, bf16: 2, f32: 4, i32: 4, i64: 8}
+  alias CrucibleSafetensors.{Errors, TensorInfo}
 
   @type tensor_payload :: %{
           required(:dtype) => atom() | String.t(),
@@ -50,7 +40,7 @@ defmodule CrucibleSafetensors.Writer do
       entry = {
         name,
         %{
-          "dtype" => Map.fetch!(@dtype_names, dtype),
+          "dtype" => wire_dtype!(dtype),
           "shape" => shape,
           "data_offsets" => [offset, next_offset]
         }
@@ -70,7 +60,7 @@ defmodule CrucibleSafetensors.Writer do
       raise Errors, "invalid shape for tensor #{inspect(name)}: #{inspect(shape)}"
     end
 
-    expected = Enum.product(shape) * Map.fetch!(@dtype_bytes, dtype)
+    expected = payload_nbytes!(dtype, shape, name)
 
     unless is_binary(data) and byte_size(data) == expected do
       raise Errors,
@@ -84,18 +74,34 @@ defmodule CrucibleSafetensors.Writer do
     raise Errors, "invalid tensor payload for #{inspect(name)}: #{inspect(tensor)}"
   end
 
-  defp normalize_dtype!(dtype) when is_atom(dtype) and is_map_key(@dtype_names, dtype), do: dtype
+  defp payload_nbytes!(dtype, shape, name) do
+    case TensorInfo.payload_nbytes(dtype, shape) do
+      {:ok, nbytes} ->
+        nbytes
 
-  defp normalize_dtype!(dtype) when is_binary(dtype) do
-    case Enum.find(@dtype_names, fn {_atom, name} -> name == dtype end) do
-      {atom, _name} -> atom
-      nil -> raise Errors, "unsupported dtype #{inspect(dtype)}"
+      {:error, :misaligned} ->
+        raise Errors, "tensor #{inspect(name)} shape/dtype bit length is not byte-aligned"
+
+      {:error, reason} ->
+        raise Errors, "invalid tensor #{inspect(name)} shape/dtype: #{inspect(reason)}"
     end
   end
 
-  defp normalize_dtype!(dtype), do: raise(Errors, "unsupported dtype #{inspect(dtype)}")
+  defp normalize_dtype!(dtype) do
+    case TensorInfo.normalize_dtype(dtype) do
+      {:ok, normalized} -> normalized
+      :error -> raise Errors, "unsupported dtype #{inspect(dtype)}"
+    end
+  end
+
+  defp wire_dtype!(dtype) do
+    {:ok, wire} = TensorInfo.wire_dtype(dtype)
+    wire
+  end
 
   defp encode_header!(entries, metadata) do
+    metadata = normalize_metadata!(metadata)
+
     entries =
       if metadata == %{} do
         entries
@@ -105,6 +111,17 @@ defmodule CrucibleSafetensors.Writer do
 
     encode_json_object(entries)
   end
+
+  defp normalize_metadata!(metadata) when is_map(metadata) do
+    if Enum.all?(metadata, fn {key, value} -> is_binary(key) and is_binary(value) end) do
+      metadata
+    else
+      raise Errors, "metadata must contain only string keys and values"
+    end
+  end
+
+  defp normalize_metadata!(metadata),
+    do: raise(Errors, "metadata must be a map, got: #{inspect(metadata)}")
 
   defp encode_json_object(entries) do
     body =

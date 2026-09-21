@@ -1,32 +1,15 @@
 defmodule CrucibleSafetensors.VectorInspect do
   @moduledoc """
-  Bounded SafeTensors vector inspection.
+  SafeTensors vector inspection with metadata-only validation.
 
   This module validates tensor metadata and file identity without materializing
   tensor payload bytes. It is intentionally generic and contains no
   framework-specific vector lengths or artifact names.
   """
 
-  alias CrucibleSafetensors.{Checksum, Reader}
+  alias CrucibleSafetensors.{Checksum, Reader, TensorInfo}
 
   @schema_version "crucible.safetensors.vector_inspect.v1"
-  @dtype_aliases %{
-    :f16 => :f16,
-    "f16" => :f16,
-    "F16" => :f16,
-    :bf16 => :bf16,
-    "bf16" => :bf16,
-    "BF16" => :bf16,
-    :f32 => :f32,
-    "f32" => :f32,
-    "F32" => :f32,
-    :i32 => :i32,
-    "i32" => :i32,
-    "I32" => :i32,
-    :i64 => :i64,
-    "i64" => :i64,
-    "I64" => :i64
-  }
 
   @spec inspect(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def inspect(path, opts \\ [])
@@ -139,7 +122,7 @@ defmodule CrucibleSafetensors.VectorInspect do
         {:ok, nil}
 
       value ->
-        case Map.fetch(@dtype_aliases, value) do
+        case TensorInfo.normalize_dtype(value) do
           {:ok, dtype} -> {:ok, dtype}
           :error -> {:error, {:invalid_expected_dtype, value}}
         end

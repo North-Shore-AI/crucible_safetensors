@@ -1,15 +1,9 @@
 defmodule CrucibleSafetensors.Reader do
-  @moduledoc "SafeTensors reader with header validation and bounded binary slices."
+  @moduledoc "SafeTensors reader with header validation and selective binary slices."
 
   alias CrucibleSafetensors.{Errors, Header, Slice, TensorInfo}
 
-  @dtype_bytes %{
-    "F16" => {:f16, 2},
-    "BF16" => {:bf16, 2},
-    "F32" => {:f32, 4},
-    "I32" => {:i32, 4},
-    "I64" => {:i64, 8}
-  }
+  @max_header_size 100_000_000
 
   @doc "Opens and validates a SafeTensors file without loading tensor payloads."
   @spec open(Path.t()) :: {:ok, Header.t()} | {:error, Exception.t()}
@@ -31,6 +25,7 @@ defmodule CrucibleSafetensors.Reader do
       decoded = decode_header!(header_json, path)
       data_offset = 8 + header_size
       tensors = parse_tensors!(decoded, file_size - data_offset, path)
+      metadata = metadata!(decoded, path)
 
       %Header{
         path: path,
@@ -38,7 +33,7 @@ defmodule CrucibleSafetensors.Reader do
         header_size: header_size,
         data_offset: data_offset,
         tensors: tensors,
-        metadata: Map.get(decoded, "__metadata__", %{})
+        metadata: metadata
       }
     end)
   end
@@ -109,7 +104,15 @@ defmodule CrucibleSafetensors.Reader do
       raise Errors, "row slice #{inspect({row_start, row_count})} exceeds tensor rows #{rows}"
     end
 
-    row_bytes = cols * dtype_bytes!(tensor.dtype)
+    {:ok, bits} = TensorInfo.element_bits(tensor.dtype)
+    row_bits = cols * bits
+
+    if rem(row_bits, 8) != 0 do
+      raise Errors,
+            "row slice for #{inspect(tensor.name)} is not byte-aligned for dtype #{inspect(tensor.dtype)}"
+    end
+
+    row_bytes = div(row_bits, 8)
     read_slice!(header, tensor, {row_start * row_bytes, row_count * row_bytes})
   end
 
@@ -127,8 +130,13 @@ defmodule CrucibleSafetensors.Reader do
 
   defp read_header_size!(file, path, file_size) do
     case :file.pread(file, 0, 8) do
-      {:ok, <<header_size::unsigned-little-64>>} when header_size <= file_size - 8 ->
+      {:ok, <<header_size::unsigned-little-64>>}
+      when header_size <= @max_header_size and header_size <= file_size - 8 ->
         header_size
+
+      {:ok, <<header_size::unsigned-little-64>>} when header_size > @max_header_size ->
+        raise Errors,
+              "header length #{header_size} exceeds #{@max_header_size} byte safety limit for #{path}"
 
       {:ok, <<header_size::unsigned-little-64>>} ->
         raise Errors, "header length #{header_size} exceeds file size for #{path}"
@@ -156,10 +164,10 @@ defmodule CrucibleSafetensors.Reader do
     end
   end
 
-  defp decode_header!(json, path) do
-    case Jason.decode(json) do
-      {:ok, decoded} when is_map(decoded) ->
-        decoded
+  defp decode_header!(<<?{, _rest::binary>> = json, path) do
+    case Jason.decode(json, objects: :ordered_objects) do
+      {:ok, %Jason.OrderedObject{} = decoded} ->
+        ordered_object_to_map!(decoded, path, [])
 
       {:ok, _other} ->
         raise Errors, "SafeTensors header must be a JSON object in #{path}"
@@ -169,13 +177,40 @@ defmodule CrucibleSafetensors.Reader do
     end
   end
 
+  defp decode_header!(_json, path) do
+    raise Errors, "SafeTensors header must begin with a JSON object in #{path}"
+  end
+
+  defp ordered_object_to_map!(%Jason.OrderedObject{values: values}, path, json_path) do
+    {decoded, _seen} =
+      Enum.reduce(values, {%{}, MapSet.new()}, fn {key, value}, {acc, seen} ->
+        if MapSet.member?(seen, key) do
+          location = Enum.reverse([key | json_path]) |> Enum.join(".")
+          raise Errors, "duplicate JSON object key #{inspect(location)} in #{path}"
+        end
+
+        decoded_value = ordered_value!(value, path, [key | json_path])
+        {Map.put(acc, key, decoded_value), MapSet.put(seen, key)}
+      end)
+
+    decoded
+  end
+
+  defp ordered_value!(%Jason.OrderedObject{} = value, path, json_path),
+    do: ordered_object_to_map!(value, path, json_path)
+
+  defp ordered_value!(value, path, json_path) when is_list(value),
+    do: Enum.map(value, &ordered_value!(&1, path, json_path))
+
+  defp ordered_value!(value, _path, _json_path), do: value
+
   defp parse_tensors!(decoded, payload_size, path) do
     tensors =
       decoded
       |> Enum.reject(fn {name, _value} -> name == "__metadata__" end)
       |> Enum.map(fn {name, metadata} -> parse_tensor!(name, metadata, payload_size, path) end)
 
-    validate_non_overlapping!(tensors, path)
+    validate_layout!(tensors, payload_size, path)
     Map.new(tensors, &{&1.name, &1})
   end
 
@@ -186,7 +221,7 @@ defmodule CrucibleSafetensors.Reader do
          path
        )
        when is_binary(name) and is_list(shape) and is_integer(start) and is_integer(stop) do
-    {dtype_atom, bytes} = dtype!(dtype, path)
+    dtype_atom = dtype!(dtype, path)
     validate_shape!(shape, name, path)
 
     unless start >= 0 and stop >= start and stop <= payload_size do
@@ -194,7 +229,7 @@ defmodule CrucibleSafetensors.Reader do
             "invalid data_offsets #{inspect([start, stop])} for tensor #{inspect(name)} in #{path}"
     end
 
-    expected = Enum.product(shape) * bytes
+    expected = expected_nbytes!(dtype_atom, shape, name, path)
 
     unless stop - start == expected do
       raise Errors,
@@ -216,9 +251,20 @@ defmodule CrucibleSafetensors.Reader do
   end
 
   defp dtype!(dtype, path) do
-    case Map.fetch(@dtype_bytes, dtype) do
-      {:ok, dtype_info} -> dtype_info
+    case TensorInfo.normalize_dtype(dtype) do
+      {:ok, normalized} -> normalized
       :error -> raise Errors, "unsupported dtype #{inspect(dtype)} in #{path}"
+    end
+  end
+
+  defp metadata!(decoded, path) do
+    metadata = Map.get(decoded, "__metadata__", %{})
+
+    if is_map(metadata) and
+         Enum.all?(metadata, fn {key, value} -> is_binary(key) and is_binary(value) end) do
+      metadata
+    else
+      raise Errors, "SafeTensors __metadata__ must contain only string keys and values in #{path}"
     end
   end
 
@@ -228,16 +274,40 @@ defmodule CrucibleSafetensors.Reader do
     end
   end
 
-  defp validate_non_overlapping!(tensors, path) do
-    tensors
-    |> Enum.sort_by(& &1.data_start)
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.each(fn [left, right] ->
-      if left.data_end > right.data_start do
+  defp validate_layout!(tensors, payload_size, path) do
+    final_offset =
+      tensors
+      |> Enum.sort_by(& &1.data_start)
+      |> Enum.reduce(0, fn tensor, expected_start ->
+        if tensor.data_start != expected_start do
+          raise Errors,
+                "tensor #{inspect(tensor.name)} starts at #{tensor.data_start}, expected #{expected_start} in #{path}"
+        end
+
+        tensor.data_end
+      end)
+
+    if final_offset != payload_size do
+      raise Errors,
+            "tensor payload layout ends at #{final_offset} bytes but file contains #{payload_size} payload bytes in #{path}"
+    end
+
+    :ok
+  end
+
+  defp expected_nbytes!(dtype, shape, name, path) do
+    case TensorInfo.payload_nbytes(dtype, shape) do
+      {:ok, nbytes} ->
+        nbytes
+
+      {:error, :misaligned} ->
         raise Errors,
-              "tensor payloads overlap in #{path}: #{inspect(left.name)} and #{inspect(right.name)}"
-      end
-    end)
+              "tensor #{inspect(name)} shape/dtype bit length is not byte-aligned in #{path}"
+
+      {:error, reason} ->
+        raise Errors,
+              "cannot determine payload size for tensor #{inspect(name)} in #{path}: #{inspect(reason)}"
+    end
   end
 
   defp normalize_byte_range!({offset, size})
@@ -254,10 +324,4 @@ defmodule CrucibleSafetensors.Reader do
       read_exact!(file, offset, size, path)
     end)
   end
-
-  defp dtype_bytes!(:f16), do: 2
-  defp dtype_bytes!(:bf16), do: 2
-  defp dtype_bytes!(:f32), do: 4
-  defp dtype_bytes!(:i32), do: 4
-  defp dtype_bytes!(:i64), do: 8
 end

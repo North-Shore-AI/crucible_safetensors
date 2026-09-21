@@ -13,29 +13,29 @@
   </a>
 </p>
 
-SafeTensors parsing, validation, bounded slicing, checksums, deterministic
-writing, and row-chunk helpers for Elixir.
+SafeTensors parsing, validation, selective range reads, streaming checksums,
+manifest inspection, deterministic writing, and row-chunk helpers for Elixir.
 
 This package is intentionally narrow. It owns SafeTensors file-format behavior
 and avoids provider, orchestration, inference, and tracing dependencies. New
 callers should prefer `CrucibleSafetensors.Reader` and
-`CrucibleSafetensors.Writer`; `Crucible.Safetensors.*` modules are compatibility
-namespaces retained for callers migrating from the original monolith extraction.
+`CrucibleSafetensors.Writer`. Compatibility namespaces for the generic file-format
+APIs remain available under `Crucible.Safetensors.*`; the old Nx/FileTensor bridge
+was removed in 0.2.0 so this package has no tensor-runtime dependency.
 
 ## What It Provides
 
 - `CrucibleSafetensors.Reader` opens a `.safetensors` file, validates the
-  header, and reads bounded tensor byte ranges without materializing the whole
+  header, and reads selected tensor byte ranges without materializing the whole
   file.
 - `CrucibleSafetensors.Writer` writes deterministic `.safetensors` files from
   binary tensor payloads.
 - `CrucibleSafetensors.ChunkReader` streams rank-2 row chunks for large tensors.
-- `CrucibleSafetensors.Checksum` returns SHA-256 checksums for files.
-- `CrucibleSafetensors.VectorInspect` validates tensor key, dtype, shape,
-  element count, and file digest without loading the tensor payload.
-- `Crucible.Safetensors.Slice` keeps the legacy lazy
-  `%Safetensors.FileTensor{}` row-slice behavior available while downstream
-  callers move to the direct reader API.
+- `CrucibleSafetensors.Checksum` incrementally computes and verifies SHA-256 file digests.
+- `CrucibleSafetensors.Manifest` inventories and validates expected tensor names,
+  dtypes, shapes, and byte sizes using header metadata only.
+- `CrucibleSafetensors.VectorInspect` validates one selected tensor key, dtype,
+  shape, element count, and file digest without loading its payload.
 
 The package does not own model loading, artifact fetching, provider calls,
 runtime orchestration, tracing, or application configuration.
@@ -48,7 +48,7 @@ by adding `crucible_safetensors` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:crucible_safetensors, "~> 0.1.0"}
+    {:crucible_safetensors, "~> 0.2.0"}
   ]
 end
 ```
@@ -71,7 +71,7 @@ slice.byte_size
 slice.data
 ```
 
-Read one bounded byte range:
+Read one byte range:
 
 ```elixir
 {:ok, slice} = Reader.read_slice(header, tensor, {0, 4096})
@@ -106,8 +106,7 @@ Writer output is sorted by tensor name so repeated writes are byte-stable.
 
 ## Row Chunking
 
-`CrucibleSafetensors.ChunkReader.row_slices/3` returns a stream of bounded
-rank-2 row slices:
+`CrucibleSafetensors.ChunkReader.row_slices/3` returns a stream of rank-2 row slices:
 
 ```elixir
 header
@@ -126,7 +125,34 @@ the entire payload at once.
 {:ok, sha256} = CrucibleSafetensors.Checksum.file_sha256("out/weights.safetensors")
 ```
 
-The checksum helper returns lowercase hexadecimal SHA-256 text.
+The checksum helper reads incrementally and returns lowercase hexadecimal SHA-256 text.
+It also accepts `sha256:<hex>` values for explicit artifact verification:
+
+```elixir
+:ok = case CrucibleSafetensors.Checksum.verify_file("out/weights.safetensors", expected) do
+  {:ok, _digest} -> :ok
+  {:error, reason} -> raise inspect(reason)
+end
+```
+
+## Manifest Validation
+
+```elixir
+alias CrucibleSafetensors.Manifest
+
+{:ok, report} =
+  Manifest.validate_file("model.safetensors", %{
+    "encoder.weight" => %{dtype: :bf16, shape: [1024, 1024]},
+    "classifier.bias" => %{dtype: :f32, shape: [3]}
+  }, exact: false)
+
+report.valid?
+report.missing
+report.mismatches
+```
+
+Manifest validation reads only the SafeTensors header. It is intended for model
+checkpoint preflight before a runtime imports tensor bytes.
 
 ## Vector Inspection
 
